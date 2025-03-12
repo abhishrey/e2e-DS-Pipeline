@@ -12,8 +12,7 @@ steps:
       '--region', 'us-central1',
       '--tasks=1',
       '--max-retries=2',
-      '--task-timeout=300s',
-      '--set-env-vars=PORT=8082'
+      '--task-timeout=300s'
     ]
 
 images:
