@@ -1,10 +1,13 @@
 steps:
+  # 1. Build Docker Image
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv', '.']
 
+  # 2. Push Docker Image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv']
 
+  # 3. Deploy Cloud Run Job
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     args: [
       'gcloud', 'run', 'jobs', 'update', 'predict-from-csv',
@@ -14,6 +17,16 @@ steps:
       '--max-retries=2',
       '--task-timeout=300s'
     ]
+    
+  # 4. Execute Cloud Run Job (After Deployment)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'gcloud'
+  args:
+    - 'run'
+    - 'jobs'
+    - 'execute'
+    - 'predict-from-csv'
+    - '--region=us-central1'
 
 images:
   - 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv'
