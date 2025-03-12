@@ -12,16 +12,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-        
-  
-      - name: Check if Secret Exists
-        run: |
-          if [[ -z "${{ secrets.GCP_SA_KEY }}" ]]; then
-            echo "Secret is NOT being injected!"
-            exit 1
-          else
-            echo "Secret exists!"
-          fi
 
       - name: Authenticate with Google Cloud
         uses: google-github-actions/auth@v2
