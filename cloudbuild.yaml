@@ -17,16 +17,12 @@ steps:
       '--max-retries=2',
       '--task-timeout=300s'
     ]
+  
     
   # 4. Execute Cloud Run Job (After Deployment)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: 'gcloud'
-  args:
-    - 'run'
-    - 'jobs'
-    - 'execute'
-    - 'predict-from-csv'
-    - '--region=us-central1'
-
+    args: [
+      'gcloud', 'run', 'jobs', 'execute', 'predict-from-csv', '--region=us-central1'
+    ]
 images:
   - 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv'
