@@ -1,0 +1,20 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv', '.']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    args: [
+      'gcloud', 'run', 'jobs', 'update', 'predict-from-csv',
+      '--image', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv',
+      '--region', 'us-central1',
+      '--tasks=1',
+      '--max-retries=2',
+      '--task-timeout=300s',
+      '--set-env-vars=PORT=8082'
+    ]
+
+images:
+  - 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predict-from-csv'
