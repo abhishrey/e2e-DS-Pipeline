@@ -33,4 +33,4 @@ jobs:
       # 3. Trigger Cloud Build to Deploy Model
       - name: Trigger Cloud Build for Model Deployment
         run: |
-          gcloud builds submit --config $CLOUD_BUILD_CONFIG --project $PROJECT_ID
+          gcloud builds submit --config $CLOUD_BUILD_CONFIG
