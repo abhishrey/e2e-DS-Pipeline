@@ -9,7 +9,7 @@ steps:
 
   # 3. Run Model Validation & Conditional Deployment
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'python'
+    entrypoint: 'python3'
     args: ['upload_model.py']
 
 images:
