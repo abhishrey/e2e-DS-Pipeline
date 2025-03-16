@@ -1,0 +1,16 @@
+steps:
+  # 1. Build Docker Image for Model Deployment
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor', '.']
+
+  # 2. Push Docker Image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor']
+
+  # 3. Run Model Validation & Conditional Deployment
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'python'
+    args: ['upload_model.py']
+
+images:
+  - 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor'
