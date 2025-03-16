@@ -17,6 +17,7 @@ env:
 jobs:
   trigger-cloud-build:
     runs-on: ubuntu-latest
+    environment: GCP_SA_KEY 
 
     steps:
       # 1. Checkout Repository
