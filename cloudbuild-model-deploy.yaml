@@ -16,8 +16,9 @@ steps:
         apt-get update && apt-get install -y python3-venv
         python3 -m venv venv
         source venv/bin/activate
-        pip install --no-cache-dir joblib requests google-cloud-storage google-cloud-aiplatform google-auth google-auth-oauthlib google-auth-httplib2 pandas scikit-learn
+        pip install --no-cache-dir joblib requests google-cloud-storage google-cloud-aiplatform google-auth google-auth-oauthlib google-auth-httplib2 pandas scikit-learn google-cloud-run
         python upload_model.py
+    serviceAccount: "712745806180-compute@developer.gserviceaccount.com"
 
 images:
   - 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor'

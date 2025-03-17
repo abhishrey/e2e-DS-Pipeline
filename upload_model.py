@@ -1,178 +1,107 @@
-# import os
-# import joblib
-# import pandas as pd
-# from google.cloud import storage, aiplatform
-# from google.cloud.storage import Blob
-# from sklearn.metrics import f1_score
-
-# # Configurations
-# PROJECT_ID = os.getenv("PROJECT_ID")
-# REGION = os.getenv("REGION", "us-central1")
-# BUCKET_NAME = os.getenv("GCS_BUCKET")
-# VALIDATION_DATA_PATH = os.getenv("VALIDATION_DATA_PATH", "training_data/combined_data_breaks.csv")
-
-# # Initialize clients
-# storage_client = storage.Client()
-# aiplatform.init(project=PROJECT_ID, location=REGION)
-
-# def get_latest_model_from_gcs(bucket_name, prefix="models/"):
-#     """Finds the most recently uploaded model file in GCS."""
-#     bucket = storage_client.bucket(bucket_name)
-#     blobs = list(bucket.list_blobs(prefix=prefix))
-    
-#     if not blobs:
-#         print("No model files found in the bucket.")
-#         return None
-    
-#     # Sort files by updated timestamp (latest first)
-#     latest_blob = sorted(blobs, key=lambda x: x.updated, reverse=True)[0]
-    
-#     return latest_blob.name  # Return the full GCS path of the latest model
-
-# def download_blob(bucket_name, source_blob_name, destination_file_name):
-#     bucket = storage_client.bucket(bucket_name)
-#     blob = bucket.blob(source_blob_name)
-#     blob.download_to_filename(destination_file_name)
-
-# def load_model(model_path):
-#     return joblib.load(model_path)
-
-# def get_current_model():
-#     """Retrieves the currently deployed model."""
-#     models = aiplatform.Model.list(order_by="update_time", filter="labels.deployed=true")
-    
-#     if models:
-#         latest_model = models[0]  # Latest deployed model
-#         current_model_path = latest_model.uri.replace("gs://", "").split("/", 1)
-#         local_path = "/tmp/current_model.pkl"
-#         download_blob(current_model_path[0], current_model_path[1], local_path)
-#         return load_model(local_path), latest_model
-#     return None, None
-
-# def evaluate_model(model, X, y):
-#     """Computes F1-score for the given model."""
-#     predictions = model.predict(X)
-#     return f1_score(y, predictions)
-
-# def main():
-#     # Get latest uploaded model from GCS dynamically
-#     latest_model_filename = get_latest_model_from_gcs(BUCKET_NAME)
-#     if not latest_model_filename:
-#         print("No new model found. Exiting.")
-#         return
-    
-#     new_model_local_path = "/tmp/new_model.pkl"
-    
-#     # Download new model and validation data
-#     download_blob(BUCKET_NAME, latest_model_filename, new_model_local_path)
-#     download_blob(BUCKET_NAME, VALIDATION_DATA_PATH, "/tmp/validation_data.csv")
-    
-#     # Load new model and validation data
-#     new_model = load_model(new_model_local_path)
-#     data = pd.read_csv("/tmp/validation_data.csv")
-#     X = data.drop(columns=["BREAKS"])
-#     y = data["BREAKS"]
-    
-#     # Evaluate new model
-#     new_model_f1 = evaluate_model(new_model, X, y)
-#     print(f"New model F1-score: {new_model_f1}")
-    
-#     # Get current model and evaluate
-#     current_model, deployed_model = get_current_model()
-#     if current_model:
-#         current_model_f1 = evaluate_model(current_model, X, y)
-#         print(f"Current model F1-score: {current_model_f1}")
-        
-#         if new_model_f1 <= current_model_f1:
-#             print("New model does not outperform the current model. Skipping deployment.")
-#             return
-    
-#     # Upload and deploy the new model
-#     new_model_gcs_path = f"gs://{BUCKET_NAME}/{latest_model_filename}"
-#     aiplatform.Model.upload(
-#         display_name="anomaly-detector",
-#         artifact_uri=new_model_gcs_path,
-#         serving_container_image_uri="gcr.io/cloud-aiplatform/prediction"
-#     )
-#     print(f"New model '{latest_model_filename}' uploaded and deployed successfully.")
-
-# if __name__ == "__main__":
-#     main()
 import os
 import joblib
 import logging
+import time
 import requests
+import pandas as pd
 from google.cloud import storage
+from google.cloud import run_v2
 from google.cloud import aiplatform
 from google.auth import default
 from google.auth.transport.requests import Request
-import pandas as pd
 from sklearn.metrics import f1_score
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Use environment variables for dynamic configuration
-PROJECT_ID = os.getenv("PROJECT_ID")
-ENDPOINT_ID = "5796490061704855552"
-GCS_BUCKET = os.getenv("GCS_BUCKET")
-VALIDATION_DATA_PATH = os.getenv("VALIDATION_DATA_PATH")
+PROJECT_ID = 712745806180
+REGION = "us-central1"
+ENDPOINT_ID = 5796490061704855552
+GCS_BUCKET = "anomaly-detection-knn"
+VALIDATION_DATA_PATH = "training_data/combined_data_breaks.csv"
+CLOUD_RUN_JOB_NAME = "predict-from-csv"  # Update with your Cloud Run Job name
 
-# Model paths
 MODEL_PATH = "/tmp/model.pkl"
-GCS_MODEL_PATH = f"gs://{GCS_BUCKET}/models/"
+GCS_MODEL_PATH_PREFIX = "models/"
+
+# Initialize Storage Client
+storage_client = storage.Client()
 
 def get_latest_model_from_gcs():
-    """Fetch the latest model file from the GCS models/ directory."""
-    storage_client = storage.Client()
-    blobs = list(storage_client.list_blobs(GCS_BUCKET, prefix="models/"))
+    """Fetches the latest model file from GCS by modification timestamp."""
+    logging.info("Fetching the latest model from GCS...")
+
+    bucket = storage_client.bucket(GCS_BUCKET)
+    blobs = list(bucket.list_blobs(prefix=GCS_MODEL_PATH_PREFIX))
 
     if not blobs:
-        logging.error("No models found in GCS.")
-        return None
+        raise ValueError("No models found in GCS bucket.")
 
-    # Sort blobs by time created (latest first)
-    latest_blob = sorted(blobs, key=lambda b: b.time_created, reverse=True)[0]
-    latest_model_path = latest_blob.name
-    logging.info(f"Latest model found: {latest_model_path}")
-    return latest_model_path
+    latest_blob = max(blobs, key=lambda b: b.updated)
+    logging.info(f"Latest model found: {latest_blob.name}")
+    return latest_blob.name
 
-def get_deployed_model_predictions(validation_data_path):
-    """Get predictions from the currently deployed model on Vertex AI."""
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(GCS_BUCKET)
-    blob = bucket.blob(validation_data_path)
-    blob.download_to_filename("/tmp/validation_data.csv")
+def trigger_cloud_run_batch_prediction():
+    """Triggers the Cloud Run Job for batch prediction and waits for it to finish."""
+    logging.info(f"Triggering Cloud Run Job: {CLOUD_RUN_JOB_NAME}...")
 
-    validation_data = pd.read_csv("/tmp/validation_data.csv")
-    X_val = validation_data.drop(columns=["BREAKS"])  # Assuming BREAKS column is 'BREAKS'
-    y_val = validation_data["BREAKS"]
-
-    # Prepare payload for prediction
-    instances = X_val.to_dict(orient="records")
-    prediction_url = (
-        f"https://us-central1-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/us-central1/endpoints/{ENDPOINT_ID}:predict"
-    )
-    headers = {"Content-Type": "application/json"}
-    payload = {"instances": instances}
-
-    # Get the access token
     credentials, _ = default()
     credentials.refresh(Request())
-    headers["Authorization"] = f"Bearer {credentials.token}"
+    headers = {
+        "Authorization": f"Bearer {credentials.token}",
+        "Content-Type": "application/json"
+    }
 
-    # Make prediction request
-    response = requests.post(prediction_url, json=payload, headers=headers)
+    # Cloud Run Jobs URL
+    cloud_run_url = f"https://{REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/{PROJECT_ID}/jobs/{CLOUD_RUN_JOB_NAME}:run"
+
+    # Start the batch prediction job
+    response = requests.post(cloud_run_url, headers=headers, json={})
 
     if response.status_code == 200:
-        predictions = response.json().get("predictions", [])
-        return f1_score(y_val, predictions)  # Assuming predictions are formatted correctly
+        logging.info("Cloud Run Job started successfully.")
     else:
-        logging.error(f"Prediction failed: {response.text}")
+        logging.error(f"Failed to trigger Cloud Run Job: {response.text}")
         return None
 
+    # Poll for job completion
+    logging.info("Waiting for batch job to complete...")
+    time.sleep(60)  # Adjust based on actual runtime
+
+    return True  # Assuming the job completes successfully
+
+def get_batch_predictions():
+    """Downloads batch predictions from GCS and computes the F1-score."""
+    logging.info("Fetching batch predictions from GCS...")
+
+    # Assuming the batch job stores the predictions in `predictions.csv`
+    predictions_blob_name = "predictions/predictions.csv"
+    predictions_path = "/tmp/predictions.csv"
+
+    bucket = storage_client.bucket(GCS_BUCKET)
+    blob = bucket.blob(predictions_blob_name)
+    
+    if not blob.exists():
+        logging.error("Batch predictions file not found in GCS.")
+        return None
+    
+    blob.download_to_filename(predictions_path)
+    logging.info("Batch predictions downloaded successfully.")
+
+    # Load predictions and ground truth
+    validation_data = pd.read_csv("/tmp/validation_data.csv")
+    predictions = pd.read_csv(predictions_path)
+    
+    y_true = validation_data["BREAKS"]
+    y_pred = predictions["predictions"]  # Ensure column name matches output format
+    
+    y_true = (y_true != 0).astype(int)
+    y_pred = (y_pred != 0).astype(int)
+    return f1_score(y_true, y_pred, average='binary')
+
 def evaluate_new_model(model_path):
-    """Evaluate the new model locally using validation data."""
+    """Evaluates the new model on the validation dataset."""
     model = joblib.load(model_path)
 
     storage_client = storage.Client()
@@ -183,52 +112,58 @@ def evaluate_new_model(model_path):
     validation_data = pd.read_csv("/tmp/validation_data.csv")
     X_val = validation_data.drop(columns=["BREAKS"])
     y_val = validation_data["BREAKS"]
-
+    y_test_binary  = (y_val != 0).astype(int)
+    expected_feature_order = ['smd_0', 'smd_1', 'smd_2', 'smd_3', 'smd_4', 'aoi_0', 'aoi_1', 'aoi_2', 'aoi_3', 'aoi_4', 'ss_0', 'ss_1', 'ss_2', 'ss_3', 'ss_4', 'cc_0', 'cc_1', 'Overall_processing_time', 'Tardiness']
+    X_val = X_val[expected_feature_order] 
     predictions = model.predict(X_val)
-    return f1_score(y_val, predictions)
+    predictions_binary = (predictions != 0).astype(int)
 
-# Get the latest model from GCS
+    return f1_score(y_test_binary , predictions_binary, average='binary')
+
+# Step 1: Download the latest model from GCS
 latest_model_path = get_latest_model_from_gcs()
-if latest_model_path:
-    logging.info("Downloading latest model from GCS...")
-    storage_client = storage.Client()
-    blob = storage_client.bucket(GCS_BUCKET).blob(latest_model_path)
-    blob.download_to_filename(MODEL_PATH)
-    logging.info("Model downloaded successfully.")
-else:
-    logging.error("No model found in GCS. Exiting.")
-    exit(1)
+blob = storage_client.bucket(GCS_BUCKET).blob(latest_model_path)
+blob.download_to_filename(MODEL_PATH)
+logging.info("Model downloaded successfully.")
 
-# Load and evaluate the new model
+# Step 2: Evaluate the new model
 new_model_score = evaluate_new_model(MODEL_PATH)
 logging.info(f"New model evaluation score: {new_model_score}")
 
-# Get the current deployed model score
-deployed_model_score = get_deployed_model_predictions(VALIDATION_DATA_PATH)
-logging.info(f"Deployed model evaluation score: {deployed_model_score}")
+# Step 3: Trigger Cloud Run batch prediction job
+if trigger_cloud_run_batch_prediction():
+    deployed_model_score = get_batch_predictions()
+    logging.info(f"Deployed model evaluation score: {deployed_model_score}")
+else:
+    logging.error("Batch job did not complete successfully. Skipping deployment.")
+    deployed_model_score = None
 
-# Only deploy the new model if it performs better
+# Step 4: Compare performance and decide on deployment
 if deployed_model_score is None:
     logging.error("Failed to evaluate the deployed model. Skipping deployment.")
 elif new_model_score > deployed_model_score:
     logging.info("New model performs better. Proceeding with deployment...")
 
-    # Upload the new model to GCS with a unique name
-    new_model_filename =  f"models/model_{new_model_score:.4f}.pkl"
-    blob = storage_client.bucket(GCS_BUCKET).blob(new_model_filename)
-    blob.upload_from_filename(MODEL_PATH)
+    # Upload new model to GCS
+    new_model_filename = f"models/model_{new_model_score:.4f}.pkl"
+    new_blob = storage_client.bucket(GCS_BUCKET).blob(new_model_filename)
+    new_blob.upload_from_filename(MODEL_PATH)
     logging.info(f"New model uploaded to GCS: {new_model_filename}")
 
-    # # Deploy the new model to Vertex AI
-    # model = aiplatform.Model.upload(
-    #     display_name=f"model_{new_model_score}",
-    #     artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}",
-    #     serving_container_image_uri="gcr.io/cloud-aiplatform/training/tf2-cpu.2-7:latest",
-    # )
+    # Deploy the new model to Vertex AI
+    model = aiplatform.Model.upload(
+        display_name=f"model_{new_model_score:.4f}",
+        artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}",
+        serving_container_image_uri="gcr.io/cloud-aiplatform/training/tf2-cpu.2-7:latest"
+    )
 
-    # Deploy to the endpoint
-    model.deploy(endpoint=ENDPOINT_ID, machine_type="n1-standard-4", traffic_split={"0": 100})
-    logging.info(f"Model deployed successfully to Vertex AI endpoint {ENDPOINT_ID}.")
+    # Deploy to the existing endpoint
+    model.deploy(
+        endpoint="5796490061704855552",
+        machine_type="n1-standard-4",
+        traffic_split={"0": 100}  # Full traffic to new model
+    )
+
+    logging.info(f"Model deployed successfully to Vertex AI endpoint.")
 else:
     logging.info("New model does not perform better. Skipping deployment.")
-

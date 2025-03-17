@@ -7,12 +7,12 @@ on:
   workflow_dispatch:  # Allows manual trigger
 
 env:
-  PROJECT_ID: "712745806180"
+  PROJECT_ID: 712745806180
   REGION: "us-central1"
   CLOUD_BUILD_CONFIG: cloudbuild-model-deploy.yaml
   GCS_BUCKET: "anomaly-detection-knn"
   MODEL_PATH: "models/model.pkl"
-  VALIDATION_DATA_PATH: "models/validation_data.csv"
+  VALIDATION_DATA_PATH: "training_data/combined_data_breaks.csv"
 
 jobs:
   trigger-cloud-build:
