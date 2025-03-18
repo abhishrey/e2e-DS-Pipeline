@@ -160,7 +160,8 @@ elif new_model_score > deployed_model_score:
     # Register the new model in Vertex AI Model Registry
     model = aiplatform.Model.upload(
         display_name=f"model_{new_model_score:.4f}",
-        artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}"
+        artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}",
+        serving_container_image_uri="us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor@latest"
     )
     logging.info(f"Model registered successfully in Vertex AI Model Registry.")
 
