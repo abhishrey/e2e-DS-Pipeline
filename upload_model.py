@@ -156,6 +156,10 @@ elif new_model_score > deployed_model_score:
     latest_blob = storage_client.bucket(GCS_BUCKET).blob("models_versioning/latest-model.txt")
     latest_blob.upload_from_string(new_model_filename)
     logging.info(f"Updated latest model reference to: {new_model_filename}")
+    time.sleep(10)
+
+    # Reload the blob to make sure we're getting the updated state
+    new_blob.reload()
 
     # Register the new model in Vertex AI Model Registry
     model = aiplatform.Model.upload(
