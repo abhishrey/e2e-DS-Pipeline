@@ -147,13 +147,13 @@ elif new_model_score > deployed_model_score:
 
     # Upload new model to GCS with timestamped name
     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
-    new_model_filename = f"models/model_{timestamp}_{new_model_score:.4f}.pkl"
+    new_model_filename = f"models_versioning/model_{timestamp}_{new_model_score:.4f}.pkl"
     new_blob = storage_client.bucket(GCS_BUCKET).blob(new_model_filename)
     new_blob.upload_from_filename(MODEL_PATH)
     logging.info(f"New model uploaded to GCS: {new_model_filename}")
 
     # Update "latest-model.txt" with the new model filename
-    latest_blob = storage_client.bucket(GCS_BUCKET).blob("models/latest-model.txt")
+    latest_blob = storage_client.bucket(GCS_BUCKET).blob("models_versioning/latest-model.txt")
     latest_blob.upload_from_string(new_model_filename)
     logging.info(f"Updated latest model reference to: {new_model_filename}")
 
@@ -161,7 +161,7 @@ elif new_model_score > deployed_model_score:
     model = aiplatform.Model.upload(
         display_name=f"model_{new_model_score:.4f}",
         artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}",
-        serving_container_image_uri="us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor@latest"
+        serving_container_image_uri="us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor:latest"
     )
     logging.info(f"Model registered successfully in Vertex AI Model Registry.")
 
