@@ -15,3 +15,6 @@ images:
   - 'us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor'
 
 serviceAccount: "712745806180-compute@developer.gserviceaccount.com"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
