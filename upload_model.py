@@ -154,20 +154,27 @@ elif new_model_score > deployed_model_score:
 
     # Update "latest-model.txt" with the new model filename
     latest_blob = storage_client.bucket(GCS_BUCKET).blob("models_versioning/latest-model.txt")
-    latest_blob.upload_from_string(new_model_filename)
-    logging.info(f"Updated latest model reference to: {new_model_filename}")
-    time.sleep(10)
+    # latest_blob.upload_from_string(new_model_filename)
+    # logging.info(f"Updated latest model reference to: {new_model_filename}")
+    try:
+        existing_history = latest_blob.download_as_text()
+    except Exception:
+        existing_history = ""  # If the file doesn't exist yet, start fresh
 
-    # Reload the blob to make sure we're getting the updated state
-    new_blob.reload()
+    # Append the new model at the top
+    updated_history = f"{new_model_filename}\n{existing_history}"
+
+    # Upload updated history back to GCS
+    latest_blob.upload_from_string(updated_history)
+    logging.info(f"Updated latest model reference with history in latest-model.txt")
 
     # Register the new model in Vertex AI Model Registry
-    model = aiplatform.Model.upload(
-        display_name=f"model_{new_model_score:.4f}",
-        artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}",
-        serving_container_image_uri="us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor:latest"
-    )
-    logging.info(f"Model registered successfully in Vertex AI Model Registry.")
+    # model = aiplatform.Model.upload(
+    #     display_name=f"model_{new_model_score:.4f}",
+    #     artifact_uri=f"gs://{GCS_BUCKET}/models_versioning",
+    #     serving_container_image_uri="us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor:latest"
+    # )
+    # logging.info(f"Model registered successfully in Vertex AI Model Registry.")
 
     # # Deploy to the existing endpoint
     # model.deploy(
@@ -176,6 +183,6 @@ elif new_model_score > deployed_model_score:
     #     traffic_split={"0": 100}  # Full traffic to new model
     # )
 
-    logging.info(f"Model deployed successfully to Vertex AI endpoint.")
+    #logging.info(f"Model deployed successfully to Vertex AI endpoint.")
 else:
     logging.info("New model does not perform better. Skipping deployment.")
