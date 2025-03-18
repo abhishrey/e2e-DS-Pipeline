@@ -9,7 +9,6 @@ on:
 env:
   PROJECT_ID: 712745806180
   REGION: "us-central1"
-  CLOUD_BUILD_CONFIG: cloudbuild-model-deploy.yaml
   GCS_BUCKET: "anomaly-detection-knn"
   MODEL_PATH: "models/model.pkl"
   VALIDATION_DATA_PATH: "training_data/combined_data_breaks.csv"
@@ -33,4 +32,4 @@ jobs:
       # 3. Trigger Cloud Build to Deploy Model
       - name: Trigger Cloud Build for Model Deployment
         run: |
-          gcloud builds submit --config $CLOUD_BUILD_CONFIG
+          gcloud builds submit --config cloudbuild-model-deploy.yaml

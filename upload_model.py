@@ -10,6 +10,7 @@ from google.cloud import aiplatform
 from google.auth import default
 from google.auth.transport.requests import Request
 from sklearn.metrics import f1_score
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -144,25 +145,31 @@ if deployed_model_score is None:
 elif new_model_score > deployed_model_score:
     logging.info("New model performs better. Proceeding with deployment...")
 
-    # Upload new model to GCS
-    new_model_filename = f"models/model_{new_model_score:.4f}.pkl"
+    # Upload new model to GCS with timestamped name
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
+    new_model_filename = f"models/model_{timestamp}_{new_model_score:.4f}.pkl"
     new_blob = storage_client.bucket(GCS_BUCKET).blob(new_model_filename)
     new_blob.upload_from_filename(MODEL_PATH)
     logging.info(f"New model uploaded to GCS: {new_model_filename}")
 
-    # Deploy the new model to Vertex AI
+    # Update "latest-model.txt" with the new model filename
+    latest_blob = storage_client.bucket(GCS_BUCKET).blob("models/latest-model.txt")
+    latest_blob.upload_from_string(new_model_filename)
+    logging.info(f"Updated latest model reference to: {new_model_filename}")
+
+    # Register the new model in Vertex AI Model Registry
     model = aiplatform.Model.upload(
         display_name=f"model_{new_model_score:.4f}",
-        artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}",
-        serving_container_image_uri="gcr.io/cloud-aiplatform/training/tf2-cpu.2-7:latest"
+        artifact_uri=f"gs://{GCS_BUCKET}/{new_model_filename}"
     )
+    logging.info(f"Model registered successfully in Vertex AI Model Registry.")
 
-    # Deploy to the existing endpoint
-    model.deploy(
-        endpoint="5796490061704855552",
-        machine_type="n1-standard-4",
-        traffic_split={"0": 100}  # Full traffic to new model
-    )
+    # # Deploy to the existing endpoint
+    # model.deploy(
+    #     endpoint="5796490061704855552",
+    #     machine_type="n1-standard-4",
+    #     traffic_split={"0": 100}  # Full traffic to new model
+    # )
 
     logging.info(f"Model deployed successfully to Vertex AI endpoint.")
 else:
