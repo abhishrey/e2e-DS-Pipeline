@@ -68,15 +68,14 @@ def trigger_cloud_run_batch_prediction():
 
     # Poll for job completion
     logging.info("Waiting for batch job to complete...")
-    time.sleep(60)  # Adjust based on actual runtime
+    time.sleep(60) 
 
-    return True  # Assuming the job completes successfully
+    return True 
 
 def get_batch_predictions():
     """Downloads batch predictions from GCS and computes the F1-score."""
     logging.info("Fetching batch predictions from GCS...")
 
-    # Assuming the batch job stores the predictions in `predictions.csv`
     predictions_blob_name = "predictions/predictions.csv"
     predictions_path = "/tmp/predictions.csv"
 
