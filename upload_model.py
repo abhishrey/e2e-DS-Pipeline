@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # Use environment variables for dynamic configuration
 PROJECT_ID = 712745806180
 REGION = "us-central1"
-ENDPOINT_ID = 5796490061704855552
+ENDPOINT_ID = 2697151500957777920
 GCS_BUCKET = "anomaly-detection-knn"
 VALIDATION_DATA_PATH = "training_data/combined_data_breaks.csv"
 CLOUD_RUN_JOB_NAME = "predict-from-csv"  # Update with your Cloud Run Job name
@@ -28,6 +28,13 @@ GCS_MODEL_PATH_PREFIX = "models/"
 
 # Initialize Storage Client
 storage_client = storage.Client()
+
+# Step 1: Download the validation dataset once
+validation_data_path = "/tmp/validation_data.csv"
+bucket = storage_client.bucket(GCS_BUCKET)
+blob = bucket.blob(VALIDATION_DATA_PATH)
+blob.download_to_filename(validation_data_path)
+logging.info("Validation dataset downloaded successfully.")
 
 def get_latest_model_from_gcs():
     """Fetches the latest model file from GCS by modification timestamp."""
@@ -72,10 +79,31 @@ def trigger_cloud_run_batch_prediction():
 
     return True 
 
-def get_batch_predictions():
-    """Downloads batch predictions from GCS and computes the F1-score."""
-    logging.info("Fetching batch predictions from GCS...")
+def evaluate_new_model_on_same_data(model_path, validation_data_path):
+    """Evaluates the new model on the same validation dataset."""
+    model = joblib.load(model_path)
+    validation_data = pd.read_csv(validation_data_path)
 
+    X_val = validation_data.drop(columns=["BREAKS"])
+    y_val = validation_data["BREAKS"]
+    y_test_binary = (y_val != 0).astype(int)
+
+    # Ensure feature order matches the model's expectations
+    expected_feature_order = [
+        'smd_0', 'smd_1', 'smd_2', 'smd_3', 'smd_4',
+        'aoi_0', 'aoi_1', 'aoi_2', 'aoi_3', 'aoi_4',
+        'ss_0', 'ss_1', 'ss_2', 'ss_3', 'ss_4',
+        'cc_0', 'cc_1', 'Overall_processing_time', 'Tardiness'
+    ]
+    X_val = X_val[expected_feature_order]
+
+    predictions = model.predict(X_val)
+    predictions_binary = (predictions != 0).astype(int)
+
+    return f1_score(y_test_binary, predictions_binary, average='binary')
+
+def evaluate_deployed_model_on_same_data(validation_data_path):
+    """Evaluates the deployed model using batch predictions on the same validation dataset."""
     predictions_blob_name = "predictions/predictions.csv"
     predictions_path = "/tmp/predictions.csv"
 
@@ -89,8 +117,7 @@ def get_batch_predictions():
     blob.download_to_filename(predictions_path)
     logging.info("Batch predictions downloaded successfully.")
 
-    # Load predictions and ground truth
-    validation_data = pd.read_csv("/tmp/validation_data.csv")
+    validation_data = pd.read_csv(validation_data_path)
     predictions = pd.read_csv(predictions_path)
     
     y_true = validation_data["BREAKS"]
@@ -100,45 +127,25 @@ def get_batch_predictions():
     y_pred = (y_pred != 0).astype(int)
     return f1_score(y_true, y_pred, average='binary')
 
-def evaluate_new_model(model_path):
-    """Evaluates the new model on the validation dataset."""
-    model = joblib.load(model_path)
-
-    storage_client = storage.Client()
-    bucket = storage_client.bucket(GCS_BUCKET)
-    blob = bucket.blob(VALIDATION_DATA_PATH)
-    blob.download_to_filename("/tmp/validation_data.csv")
-
-    validation_data = pd.read_csv("/tmp/validation_data.csv")
-    X_val = validation_data.drop(columns=["BREAKS"])
-    y_val = validation_data["BREAKS"]
-    y_test_binary  = (y_val != 0).astype(int)
-    expected_feature_order = ['smd_0', 'smd_1', 'smd_2', 'smd_3', 'smd_4', 'aoi_0', 'aoi_1', 'aoi_2', 'aoi_3', 'aoi_4', 'ss_0', 'ss_1', 'ss_2', 'ss_3', 'ss_4', 'cc_0', 'cc_1', 'Overall_processing_time', 'Tardiness']
-    X_val = X_val[expected_feature_order] 
-    predictions = model.predict(X_val)
-    predictions_binary = (predictions != 0).astype(int)
-
-    return f1_score(y_test_binary , predictions_binary, average='binary')
-
-# Step 1: Download the latest model from GCS
+# Step 2: Download the latest model from GCS
 latest_model_path = get_latest_model_from_gcs()
 blob = storage_client.bucket(GCS_BUCKET).blob(latest_model_path)
 blob.download_to_filename(MODEL_PATH)
 logging.info("Model downloaded successfully.")
 
-# Step 2: Evaluate the new model
-new_model_score = evaluate_new_model(MODEL_PATH)
+# Step 3: Evaluate the new model
+new_model_score = evaluate_new_model_on_same_data(MODEL_PATH, validation_data_path)
 logging.info(f"New model evaluation score: {new_model_score}")
 
-# Step 3: Trigger Cloud Run batch prediction job
+# Step 4: Trigger Cloud Run batch prediction job and evaluate the deployed model
 if trigger_cloud_run_batch_prediction():
-    deployed_model_score = get_batch_predictions()
+    deployed_model_score = evaluate_deployed_model_on_same_data(validation_data_path)
     logging.info(f"Deployed model evaluation score: {deployed_model_score}")
 else:
     logging.error("Batch job did not complete successfully. Skipping deployment.")
     deployed_model_score = None
 
-# Step 4: Compare performance and decide on deployment
+# Step 5: Compare performance and decide on deployment
 if deployed_model_score is None:
     logging.error("Failed to evaluate the deployed model. Skipping deployment.")
 elif new_model_score > deployed_model_score:
@@ -153,8 +160,6 @@ elif new_model_score > deployed_model_score:
 
     # Update "latest-model.txt" with the new model filename
     latest_blob = storage_client.bucket(GCS_BUCKET).blob("models_versioning/latest-model.txt")
-    # latest_blob.upload_from_string(new_model_filename)
-    # logging.info(f"Updated latest model reference to: {new_model_filename}")
     try:
         existing_history = latest_blob.download_as_text()
     except Exception:

@@ -1,24 +1,8 @@
 steps:
-  # Step 1: Validate the uploaded file
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: "validate-file"
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        echo "Uploaded file: $_BUILD_SUBSTITUTION_OBJECT_NAME"
-        if [[ "$_BUILD_SUBSTITUTION_OBJECT_NAME" == *.pkl ]]; then
-          echo "Valid model file detected. Proceeding to deployment step."
-        else
-          echo "Uploaded file is not a valid model. Skipping deployment."
-          exit 0
-        fi
-
-  # Step 2: Deploy the model (only runs if Step 1 succeeds)
+  # Step 1: Deploy the model
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: "deploy-model"
     entrypoint: 'bash'
-    waitFor: ["validate-file"]
     args:
       - '-c'
       - |
