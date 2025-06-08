@@ -4,6 +4,8 @@ import logging
 import time
 import requests
 import pandas as pd
+import mlflow
+import mlflow.sklearn
 from google.cloud import storage
 from google.cloud import run_v2
 from google.cloud import aiplatform
@@ -25,6 +27,10 @@ CLOUD_RUN_JOB_NAME = "predict-from-csv"  # Update with your Cloud Run Job name
 
 MODEL_PATH = "/tmp/model.pkl"
 GCS_MODEL_PATH_PREFIX = "models/"
+
+MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "https://mlflow-tracking-server-712745806180.us-central1.run.app")  # Update this
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+mlflow.set_experiment("AnomalyDetectionModel")
 
 # Initialize Storage Client
 storage_client = storage.Client()
@@ -146,47 +152,65 @@ else:
     deployed_model_score = None
 
 # Step 5: Compare performance and decide on deployment
-if deployed_model_score is None:
-    logging.error("Failed to evaluate the deployed model. Skipping deployment.")
-elif new_model_score > deployed_model_score:
-    logging.info("New model performs better. Proceeding with deployment...")
 
-    # Upload new model to GCS with timestamped name
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
-    new_model_filename = f"models_versioning/model_{timestamp}_{new_model_score:.4f}.pkl"
-    new_blob = storage_client.bucket(GCS_BUCKET).blob(new_model_filename)
-    new_blob.upload_from_filename(MODEL_PATH)
-    logging.info(f"New model uploaded to GCS: {new_model_filename}")
+# if deployed_model_score is None:
+#     logging.error("Failed to evaluate the deployed model. Skipping deployment.")
+# elif new_model_score > deployed_model_score:
+#     logging.info("New model performs better. Proceeding with deployment...")
 
-    # Update "latest-model.txt" with the new model filename
-    latest_blob = storage_client.bucket(GCS_BUCKET).blob("models_versioning/latest-model.txt")
-    try:
-        existing_history = latest_blob.download_as_text()
-    except Exception:
-        existing_history = ""  # If the file doesn't exist yet, start fresh
+#     # Upload new model to GCS with timestamped name
+#     timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
+#     new_model_filename = f"models_versioning/model_{timestamp}_{new_model_score:.4f}.pkl"
+#     new_blob = storage_client.bucket(GCS_BUCKET).blob(new_model_filename)
+#     new_blob.upload_from_filename(MODEL_PATH)
+#     logging.info(f"New model uploaded to GCS: {new_model_filename}")
 
-    # Append the new model at the top
-    updated_history = f"{new_model_filename}\n{existing_history}"
+#     # Update "latest-model.txt" with the new model filename
+#     latest_blob = storage_client.bucket(GCS_BUCKET).blob("models_versioning/latest-model.txt")
+#     try:
+#         existing_history = latest_blob.download_as_text()
+#     except Exception:
+#         existing_history = ""  # If the file doesn't exist yet, start fresh
 
-    # Upload updated history back to GCS
-    latest_blob.upload_from_string(updated_history)
-    logging.info(f"Updated latest model reference with history in latest-model.txt")
+#     # Append the new model at the top
+#     updated_history = f"{new_model_filename}\n{existing_history}"
 
-    # Register the new model in Vertex AI Model Registry
-    # model = aiplatform.Model.upload(
-    #     display_name=f"model_{new_model_score:.4f}",
-    #     artifact_uri=f"gs://{GCS_BUCKET}/models_versioning",
-    #     serving_container_image_uri="us-central1-docker.pkg.dev/abhishreya-sharma-ma/predictor-repo/predictor:latest"
-    # )
-    # logging.info(f"Model registered successfully in Vertex AI Model Registry.")
+#     # Upload updated history back to GCS
+#     latest_blob.upload_from_string(updated_history)
+#     logging.info(f"Updated latest model reference with history in latest-model.txt")
 
-    # # Deploy to the existing endpoint
-    # model.deploy(
-    #     endpoint="5796490061704855552",
-    #     machine_type="n1-standard-4",
-    #     traffic_split={"0": 100}  # Full traffic to new model
-    # )
+# else:
+#     logging.info("New model does not perform better. Skipping deployment.")
 
-    #logging.info(f"Model deployed successfully to Vertex AI endpoint.")
-else:
-    logging.info("New model does not perform better. Skipping deployment.")
+with mlflow.start_run(run_name="model_comparison"):
+    mlflow.log_metric("new_model_f1", new_model_score)
+    if deployed_model_score is not None:
+        mlflow.log_metric("deployed_model_f1", deployed_model_score)
+
+    if new_model_score > deployed_model_score:
+        
+        logging.info("New model performs better. Proceeding with deployment...")
+        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
+        versioned_model = f"models_versioning/model_{timestamp}_{new_model_score:.4f}.pkl"
+        bucket.blob(versioned_model).upload_from_filename(MODEL_PATH)
+        logging.info(f"New model uploaded to GCS: {versioned_model}")
+
+        latest_blob = bucket.blob("models_versioning/latest-model.txt")
+        try:
+            history = latest_blob.download_as_text()
+        except Exception:
+            history = ""
+        latest_blob.upload_from_string(f"{versioned_model}\n{history}")
+        logging.info(f"Updated latest model reference with history in latest-model.txt")
+
+        # Log artifact to MLflow
+        mlflow.log_artifact(MODEL_PATH, artifact_path="model")
+        mlflow.sklearn.log_model(
+            sk_model=joblib.load(MODEL_PATH),
+            artifact_path="sklearn-model",
+            registered_model_name="AnomalyDetectionModel"
+        )
+        mlflow.set_tag("deployment_status", "deployed")
+    else:
+        logging.info("New model does not perform better. Skipping deployment.")
+        mlflow.set_tag("deployment_status", "skipped")
