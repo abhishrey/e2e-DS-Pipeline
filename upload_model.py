@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # Use environment variables for dynamic configuration
 PROJECT_ID = 712745806180
 REGION = "us-central1"
-ENDPOINT_ID = 2697151500957777920
+ENDPOINT_ID = 5712274068086980608
 GCS_BUCKET = "anomaly-detection-knn"
 VALIDATION_DATA_PATH = "training_data/combined_data_breaks.csv"
 CLOUD_RUN_JOB_NAME = "predict-from-csv"  # Update with your Cloud Run Job name
