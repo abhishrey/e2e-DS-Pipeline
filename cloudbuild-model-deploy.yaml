@@ -9,7 +9,18 @@ steps:
         apt-get update && apt-get install -y python3-venv
         python3 -m venv venv
         source venv/bin/activate
-        pip install --no-cache-dir joblib requests google-cloud-storage google-cloud-aiplatform google-auth google-auth-oauthlib google-auth-httplib2 pandas scikit-learn google-cloud-run mlflow
+        pip install --no-cache-dir \
+          joblib \
+          requests \
+          google-cloud-storage \
+          google-cloud-aiplatform \
+          google-auth \
+          google-auth-oauthlib \
+          google-auth-httplib2 \
+          pandas \
+          scikit-learn==1.6.1 \
+          google-cloud-run \
+          mlflow==2.22.1
         python upload_model.py
 
 serviceAccount: "projects/abhishreya-sharma-ma/serviceAccounts/712745806180-compute@developer.gserviceaccount.com"

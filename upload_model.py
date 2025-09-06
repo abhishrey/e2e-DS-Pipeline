@@ -190,7 +190,7 @@ with mlflow.start_run(run_name="model_comparison"):
     if new_model_score > deployed_model_score:
         
         logging.info("New model performs better. Proceeding with deployment...")
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
+        timestamp = datetime.now().strftime("%Y%m%d%H%M")
         versioned_model = f"models_versioning/model_{timestamp}_{new_model_score:.4f}.pkl"
         bucket.blob(versioned_model).upload_from_filename(MODEL_PATH)
         logging.info(f"New model uploaded to GCS: {versioned_model}")
